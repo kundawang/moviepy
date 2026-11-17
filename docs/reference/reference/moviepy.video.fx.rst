@@ -108,6 +108,9 @@ moviepy.video.fx
    moviepy.video.fx.MultiplySpeed
 
 
+   moviepy.video.fx.OpacityKeyframes
+
+
    moviepy.video.fx.Painting
 
 

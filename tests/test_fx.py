@@ -992,6 +992,306 @@ def test_scroll():
     pass
 
 
+def test_opacity_keyframes_interpolation():
+    """Keyframes are linearly interpolated at any frame time, not only at fps."""
+    clip = ColorClip((1, 1), color=(255, 255, 255), duration=4)
+    clip = clip.with_effects([vfx.OpacityKeyframes([(0, 0), (1, 1), (2, 1), (3, 0)])])
+
+    assert clip.mask is not None
+
+    # At, before and after the keyframes
+    for t, expected in ((0, 0), (1, 1), (2, 1), (3, 0), (4, 0)):
+        assert clip.mask.get_frame(t)[0][0] == pytest.approx(expected)
+
+    # Between keyframes, including times that are not multiples of any fps
+    for t, expected in ((0.25, 0.25), (0.5, 0.5), (1.5, 1), (2.5, 0.5), (2.75, 0.25)):
+        assert clip.mask.get_frame(t)[0][0] == pytest.approx(expected)
+
+    # Before the first keyframe the first opacity is held even if it is > 0
+    clip = ColorClip((1, 1), color=(255, 255, 255), duration=3).with_effects(
+        [vfx.OpacityKeyframes([(1, 0.2), (2, 0.6)])]
+    )
+    assert clip.mask.get_frame(0)[0][0] == pytest.approx(0.2)
+    assert clip.mask.get_frame(0.5)[0][0] == pytest.approx(0.2)
+    assert clip.mask.get_frame(1.5)[0][0] == pytest.approx(0.4)
+    assert clip.mask.get_frame(3)[0][0] == pytest.approx(0.6)
+
+
+def test_opacity_keyframes_accepts_mapping_and_unordered_pairs():
+    clip = ColorClip((1, 1), color=(255, 255, 255), duration=2)
+    mapping = clip.with_effects([vfx.OpacityKeyframes({0.5: 0.25, 0: 0, 1: 1})])
+    unordered = clip.with_effects([vfx.OpacityKeyframes([(1, 1), (0, 0), (0.5, 0.25)])])
+
+    for t in (0, 0.25, 0.5, 0.75, 1, 1.5, 2):
+        assert mapping.mask.get_frame(t)[0][0] == pytest.approx(
+            unordered.mask.get_frame(t)[0][0]
+        )
+    assert mapping.mask.get_frame(0.25)[0][0] == pytest.approx(0.125)
+
+
+def test_opacity_keyframes_multiplies_existing_mask():
+    """Keyframes multiply the existing mask instead of replacing it."""
+    clip = ColorClip((2, 2), color=(255, 255, 255), duration=2)
+    mask = ColorClip((2, 2), color=0.5, is_mask=True)
+    clip.mask = mask
+
+    clip = clip.with_effects([vfx.OpacityKeyframes([(0, 0), (1, 1)])])
+
+    assert clip.mask.get_frame(0)[0][0] == pytest.approx(0)
+    assert clip.mask.get_frame(0.5)[0][0] == pytest.approx(0.25)
+    assert clip.mask.get_frame(1)[0][0] == pytest.approx(0.5)
+
+    # Pixel-level masks, such as an alpha channel, are preserved too
+    ramp = np.tile(np.linspace(0, 1, 4), (2, 1))
+    clip = ColorClip((4, 2), color=(255, 255, 255), duration=2)
+    clip.mask = ImageClip(ramp, is_mask=True).with_duration(2)
+    clip = clip.with_effects([vfx.OpacityKeyframes([(0, 0.5), (2, 0.5)])])
+    assert np.allclose(clip.mask.get_frame(1), ramp * 0.5)
+
+
+def test_opacity_keyframes_keeps_audio():
+    """The audio track is left untouched."""
+    audio = AudioClip(lambda t: np.sin(2 * np.pi * 440 * np.atleast_1d(t)), fps=44100)
+    clip = ColorClip((1, 1), color=(255, 255, 255), duration=2).with_audio(
+        audio.with_duration(2)
+    )
+
+    faded = clip.with_effects([vfx.OpacityKeyframes([(0, 0), (2, 1)])])
+
+    assert faded.audio is not None
+    assert faded.audio.duration == pytest.approx(2)
+    assert np.array_equal(faded.audio.get_frame(0.5), clip.audio.get_frame(0.5))
+
+
+def test_opacity_keyframes_does_not_change_frames_or_source_clip():
+    """Only the mask is affected; the source clip is left untouched."""
+    source = ColorClip((2, 2), color=(10, 20, 30), duration=2)
+    assert source.mask is None
+
+    faded = source.with_effects([vfx.OpacityKeyframes([(0, 0), (1, 0.5)])])
+
+    assert faded is not source
+    assert np.array_equal(faded.get_frame(0), source.get_frame(0))
+    assert np.array_equal(faded.get_frame(1), source.get_frame(1))
+
+    # The effect adds a mask to its copy, not to the source clip
+    assert source.mask is None
+    assert faded.mask.get_frame(1)[0][0] == pytest.approx(0.5)
+
+    # An explicit source mask is not mutated either
+    source = ColorClip((2, 2), color=(10, 20, 30), duration=2)
+    original_mask = ColorClip((2, 2), color=0.5, is_mask=True).with_duration(2)
+    source.mask = original_mask
+
+    faded = source.with_effects([vfx.OpacityKeyframes([(0, 0), (1, 0.5)])])
+
+    assert source.mask is original_mask
+    assert original_mask.get_frame(1)[0][0] == pytest.approx(0.5)
+    assert faded.mask.get_frame(1)[0][0] == pytest.approx(0.25)
+
+
+def test_opacity_keyframes_with_crop():
+    """Cropping before or after the effect keeps mask and frames aligned."""
+    ramp = np.tile(np.linspace(0, 1, 4), (2, 1))
+    source = ColorClip((4, 2), color=(255, 255, 255), duration=2)
+    source.mask = ImageClip(ramp, is_mask=True).with_duration(2)
+    keyframes = [(0, 0.5), (2, 0.5)]
+
+    # Crop, then animate opacity: the mask that gets animated is the cropped one
+    crop_then_fade = source.with_effects([vfx.Crop(x1=1, x2=3)]).with_effects(
+        [vfx.OpacityKeyframes(keyframes)]
+    )
+    assert crop_then_fade.size == (2, 2)
+    assert crop_then_fade.mask.size == (2, 2)
+    assert np.allclose(crop_then_fade.mask.get_frame(1), ramp[:, 1:3] * 0.5)
+
+    # Animate opacity, then crop: the animated mask is cropped afterwards
+    fade_then_crop = source.with_effects(
+        [vfx.OpacityKeyframes(keyframes)]
+    ).with_effects([vfx.Crop(x1=1, x2=3)])
+    assert fade_then_crop.size == (2, 2)
+    assert fade_then_crop.mask.size == (2, 2)
+    assert np.allclose(fade_then_crop.mask.get_frame(1), ramp[:, 1:3] * 0.5)
+
+
+def test_opacity_keyframes_on_mask_clip():
+    """Applying the effect to a mask clip scales the mask frames themselves."""
+    mask = ColorClip((1, 1), color=1.0, is_mask=True, duration=2).with_effects(
+        [vfx.OpacityKeyframes([(0, 0), (1, 1)])]
+    )
+
+    assert mask.is_mask
+    assert mask.get_frame(0)[0][0] == pytest.approx(0)
+    assert mask.get_frame(0.5)[0][0] == pytest.approx(0.5)
+    assert mask.get_frame(1)[0][0] == pytest.approx(1)
+
+
+def test_opacity_keyframes_with_start_and_subclip():
+    """Keyframes stay attached to clip-local time through starts and cuts."""
+    base = ColorClip((1, 1), color=(255, 255, 255), duration=6)
+    faded = base.with_effects(
+        [vfx.OpacityKeyframes([(0, 0), (1, 1), (2, 0), (3, 1), (4, 0), (5, 1)])]
+    )
+
+    # clip-local times are unaffected by with_start
+    started = faded.with_start(10)
+    for t, expected in ((0, 0), (1, 1), (2, 0), (4, 0)):
+        assert started.mask.get_frame(t)[0][0] == pytest.approx(expected)
+
+    # Cutting the first two seconds shifts the keyframes with the frames
+    subclip = faded.subclipped(2, 5)
+    assert subclip.duration == pytest.approx(3)
+    assert subclip.mask.duration == pytest.approx(3)
+    for t, expected in ((0, 0), (1, 1), (2, 0)):
+        assert subclip.mask.get_frame(t)[0][0] == pytest.approx(expected)
+
+
+def test_opacity_keyframes_with_speed():
+    """Mask keyframes follow the clip when its timeline is scaled."""
+    base = ColorClip((1, 1), color=(255, 255, 255), duration=4)
+    faded = base.with_effects([vfx.OpacityKeyframes([(0, 0), (1, 1), (2, 0), (3, 1)])])
+
+    # Twice as fast: clip time 1s maps to 0.5s
+    faster = faded.with_speed_scaled(2)
+    assert faster.duration == pytest.approx(2)
+    assert faster.mask.duration == pytest.approx(2)
+    for t, expected in ((0, 0), (0.5, 1), (1, 0), (1.5, 1), (2, 1)):
+        assert faster.mask.get_frame(t)[0][0] == pytest.approx(expected)
+    # The frame and its mask still line up
+    assert faster.get_frame(0.5).shape == (1, 1, 3)
+    assert faster.mask.get_frame(0.5).shape == (1, 1)
+
+
+def test_opacity_keyframes_without_duration():
+    """A clip without a duration is rejected, like other time-based effects."""
+    clip = ColorClip((1, 1), color=(255, 255, 255))
+    assert clip.duration is None
+
+    with pytest.raises(ValueError, match="duration"):
+        clip.with_effects([vfx.OpacityKeyframes([(0, 0), (1, 1)])])
+
+    # Giving the clip a duration makes the same effect valid
+    faded = clip.with_duration(2).with_effects([vfx.OpacityKeyframes([(0, 0), (2, 1)])])
+    assert faded.duration == pytest.approx(2)
+    assert faded.mask.get_frame(1)[0][0] == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize(
+    ("keyframes", "match"),
+    (
+        ([], "at least one keyframe"),
+        ({}, "at least one keyframe"),
+        ([(0,)], "pair"),
+        ("0:0", "not a string"),
+        ({(0, 0): 1}, "real number"),
+        ([(0, 0), (0, 1)], "Duplicated"),
+        ([(-1, 0)], "greater or equal to 0"),
+        ([(0, float("nan"))], "finite"),
+        ([(float("inf"), 0)], "finite"),
+        ([(0, -0.1)], "between 0 and 1"),
+        ([(0, 1.1)], "between 0 and 1"),
+        ([(0, "1")], "real number"),
+        ([(0, 0), (5, 1)], "outside the clip's duration"),
+    ),
+)
+def test_opacity_keyframes_invalid_keyframes(keyframes, match):
+    clip = ColorClip((1, 1), color=(255, 255, 255), duration=3)
+
+    with pytest.raises(ValueError, match=match):
+        clip.with_effects([vfx.OpacityKeyframes(keyframes)])
+
+
+def test_opacity_keyframes_reusable_effect():
+    """A same effect object can be applied twice with the same result."""
+    effect = vfx.OpacityKeyframes([(0, 0), (1, 1)])
+    clip = ColorClip((1, 1), color=(255, 255, 255), duration=2)
+
+    first = clip.with_effects([effect])
+    second = clip.with_effects([effect])
+
+    for t in (0, 0.5, 1, 2):
+        assert first.mask.get_frame(t)[0][0] == pytest.approx(
+            second.mask.get_frame(t)[0][0]
+        )
+
+
+@pytest.mark.parametrize("fps", (2, 24, 30))
+def test_opacity_keyframes_in_composite(fps):
+    """Sample pixel alpha over a three-colour background at several fps."""
+    # Three background bands: red, green, blue, with a white caption on the
+    # middle (green) band fading in, holding, then fading out.
+    background = CompositeVideoClip(
+        [
+            ColorClip((1, 1), color=(255, 0, 0), duration=3).with_position((0, 0)),
+            ColorClip((1, 1), color=(0, 255, 0), duration=3).with_position((1, 0)),
+            ColorClip((1, 1), color=(0, 0, 255), duration=3).with_position((2, 0)),
+        ],
+        size=(3, 1),
+    )
+    band = ColorClip((1, 1), color=(255, 255, 255), duration=3).with_position((1, 0))
+    band = band.with_effects([vfx.OpacityKeyframes([(0, 0), (1, 1), (2, 1), (3, 0)])])
+
+    composite = CompositeVideoClip([background, band], size=(3, 1))
+
+    def expected_alpha(t):
+        if t < 1:
+            return t
+        if t <= 2:
+            return 1.0
+        return 3.0 - t
+
+    for index in range(0, 3 * fps):
+        t = index / fps
+        frame = composite.get_frame(t)[0]
+        alpha = expected_alpha(t)
+
+        # Bands left and right of the overlay keep their colour
+        assert frame[0].tolist() == [255, 0, 0]
+        assert frame[2].tolist() == [0, 0, 255]
+
+        # The middle band is white blended over green by the interpolated alpha.
+        # Compositing works on uint8, so allow one level of rounding.
+        assert abs(int(frame[1][0]) - round(255 * alpha)) <= 1
+        assert abs(int(frame[1][1]) - 255) <= 1
+        assert abs(int(frame[1][2]) - round(255 * alpha)) <= 1
+
+    # Exact keyframe times, whatever the fps
+    assert composite.get_frame(0)[0][1].tolist() == [0, 255, 0]
+    assert composite.get_frame(1)[0][1].tolist() == [255, 255, 255]
+    assert composite.get_frame(2)[0][1].tolist() == [255, 255, 255]
+    assert composite.get_frame(2.5)[0][1].tolist() == [127, 255, 127]
+
+
+@pytest.mark.parametrize("fps", (4, 12))
+def test_opacity_keyframes_composite_timeline(fps):
+    """Keyframe times follow start, clipping and speed in a composite."""
+    background = ColorClip((2, 1), color=(0, 0, 0), duration=6)
+    overlay = ColorClip((1, 1), color=(255, 255, 255), duration=4)
+    overlay = overlay.with_effects(
+        [vfx.OpacityKeyframes([(0, 0), (1, 1), (2, 0), (3, 1)])]
+    )
+    # Placed at t=1s and cut to its middle two seconds (local 1s..3s)
+    overlay = overlay.subclipped(1, 3).with_start(1)
+
+    composite = CompositeVideoClip([background, overlay], size=(2, 1))
+
+    for index in range(0, 6 * fps):
+        t = index / fps
+        frame = composite.get_frame(t)[0]
+        if not 1 <= t < 3:
+            # Outside the clip's visible interval nothing is drawn
+            assert frame[0].tolist() == [0, 0, 0]
+            continue
+
+        # Clip-local time equals the composite time here, because the start
+        # offset (1s) cancels the subclip offset (1s)
+        local = t
+        expected = abs(local - 2)  # 1 at 1s, 0 at 2s, 1 at 3s
+        assert abs(int(frame[0][0]) - round(255 * expected)) <= 1
+        # The right pixel is never covered
+        assert frame[1].tolist() == [0, 0, 0]
+
+
 def test_multiply_speed():
     clip = BitmapClip([["A"], ["B"], ["C"], ["D"]], fps=1)
 

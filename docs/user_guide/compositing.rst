@@ -118,6 +118,16 @@ That means you can actually use any of the already existing effects and use them
 
 For more info, see :py:mod:`~moviepy.video.compositing.transitions` and :py:mod:`~moviepy.video.fx`.
 
+Animating opacity with keyframes
+""""""""""""""""""""""""""""""""
+
+When you need more than a simple fade — for example a caption that fades in, holds for a while, then fades out — use :py:class:`~moviepy.video.fx.OpacityKeyframes`. It takes ``(time, opacity)`` pairs in the clip's local time and interpolates linearly at whatever moment a frame is requested, so a fade boundary that falls between two output frames is still honoured.
+
+.. literalinclude:: /_static/code/user_guide/compositing/opacity_keyframes.py
+    :language: python
+
+Keyframe times follow the clip through :py:meth:`~moviepy.Clip.Clip.with_start`, :py:meth:`~moviepy.Clip.Clip.subclipped` and :py:meth:`~moviepy.video.fx.MultiplySpeed.MultiplySpeed`, so you describe the animation once on the source clip. The interpolated opacity is multiplied with the clip's existing mask, which lets you keep the transparency of a PNG logo or of a partially transparent image, and the clip's audio is left untouched.
+
 Compositing Audio Clips
 -----------------------
 

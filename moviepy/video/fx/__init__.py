@@ -27,6 +27,7 @@ from moviepy.video.fx.MirrorX import MirrorX
 from moviepy.video.fx.MirrorY import MirrorY
 from moviepy.video.fx.MultiplyColor import MultiplyColor
 from moviepy.video.fx.MultiplySpeed import MultiplySpeed
+from moviepy.video.fx.OpacityKeyframes import OpacityKeyframes
 from moviepy.video.fx.Painting import Painting
 from moviepy.video.fx.Resize import Resize
 from moviepy.video.fx.Rotate import Rotate
@@ -64,6 +65,7 @@ __all__ = (
     "MirrorY",
     "MultiplyColor",
     "MultiplySpeed",
+    "OpacityKeyframes",
     "Painting",
     "Resize",
     "Rotate",
