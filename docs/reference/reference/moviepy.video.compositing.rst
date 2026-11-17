@@ -35,4 +35,6 @@ moviepy.video.compositing
 
    moviepy.video.compositing.CompositeVideoClip
 
+   moviepy.video.compositing.MultiCameraClip
+
 

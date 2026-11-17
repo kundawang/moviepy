@@ -20,6 +20,7 @@ This mean you need to specifically set `bg_color=None` if you want to generate a
 
 ### Added
 - Possibility to select audio track when reading a file (#2429)
+- New `MultiCameraClip` to synchronize several camera feeds with different starts and resolutions into a fixed-size, fixed-duration grid (e.g. a 2x2 interview layout), with letterbox (`fit="contain"`) or center-crop (`fit="cover"`) fitting, background-filled missing frames, host-only or weighted mixed audio, and full input validation
 
 ### Changed 
 - Rewrite FFmpegInfosParser to use indentation and block extractions instead of a state machine (PR #2470)

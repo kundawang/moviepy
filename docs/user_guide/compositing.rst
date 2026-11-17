@@ -51,6 +51,26 @@ You obtain a clip which looks like this:
 
 For more info, see :py:func:`~moviepy.video.compositing.CompositeVideoClip.clip_array`.
 
+Synchronizing Cameras in a Multi-Camera Grid
+""""""""""""""""""""""""""""""""""""""""""""
+
+When editing an interview shot with several cameras, the feeds usually have different resolutions, aspect ratios and — because the cameras were started at different moments — different starting points.
+:py:class:`~moviepy.video.compositing.MultiCameraClip.MultiCameraClip` turns them into one stable grid (for instance a 2x2 layout) of fixed size and duration, keeping every feed synchronized.
+
+Each camera is provided as a ``(clip, offset, (row, col))`` tuple: the ``offset`` is the time, in seconds, at which the clip's first frame must appear in the output, and ``(row, col)`` is its cell in the grid.
+
+.. literalinclude:: /_static/code/user_guide/compositing/multicamera.py
+    :language: python
+
+A feed is fitted into its cell in one of two ways:
+
+- ``fit="contain"`` (default): the whole frame is kept, scaled while preserving its aspect ratio, and the empty borders are filled with ``bg_color`` (letterboxing);
+- ``fit="cover"``: the frame is scaled to fill the whole cell, preserving its aspect ratio, then the overflow is center-cropped.
+
+Cells stay filled with ``bg_color`` wherever a camera has no frame yet (before its offset or after it ends). The soundtrack either keeps one host camera (``audio_mode="host"`` with ``host_index``) or mixes every available track, optionally weighted with ``audio_weights``. Cameras without an audio track are simply skipped in a mix.
+
+For the full list of parameters and validation rules, see :py:class:`~moviepy.video.compositing.MultiCameraClip.MultiCameraClip`.
+
 More Complex Video Compositing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

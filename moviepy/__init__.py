@@ -19,6 +19,7 @@ from moviepy.video.compositing.CompositeVideoClip import (
     clips_array,
     concatenate_videoclips,
 )
+from moviepy.video.compositing.MultiCameraClip import MultiCameraClip
 from moviepy.video.io import ffmpeg_tools
 from moviepy.video.io.display_in_notebook import display_in_notebook
 from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
@@ -51,6 +52,7 @@ __all__ = [
     "BitmapClip",
     "VideoFileClip",
     "CompositeVideoClip",
+    "MultiCameraClip",
     "clips_array",
     "ImageSequenceClip",
     "concatenate_videoclips",
