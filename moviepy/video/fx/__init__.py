@@ -29,6 +29,7 @@ from moviepy.video.fx.MultiplyColor import MultiplyColor
 from moviepy.video.fx.MultiplySpeed import MultiplySpeed
 from moviepy.video.fx.Painting import Painting
 from moviepy.video.fx.Resize import Resize
+from moviepy.video.fx.RollingShutter import RollingShutter
 from moviepy.video.fx.Rotate import Rotate
 from moviepy.video.fx.Scroll import Scroll
 from moviepy.video.fx.SlideIn import SlideIn
@@ -66,6 +67,7 @@ __all__ = (
     "MultiplySpeed",
     "Painting",
     "Resize",
+    "RollingShutter",
     "Rotate",
     "Scroll",
     "SlideIn",

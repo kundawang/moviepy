@@ -992,6 +992,190 @@ def test_scroll():
     pass
 
 
+def _moving_line_clip(width=40, height=20, duration=4.0, fps=10, speed=10):
+    """Composite clip of a white vertical line sweeping right at ``speed`` px/s."""
+    background = ColorClip((width, height), color=(0, 0, 0)).with_duration(duration)
+    line = ColorClip((1, height), color=(255, 255, 255)).with_duration(duration)
+    moving_line = line.with_position(lambda t: (min(width - 1, int(speed * t)), 0))
+    return (
+        CompositeVideoClip([background, moving_line])
+        .with_duration(duration)
+        .with_fps(fps)
+    )
+
+
+def _line_column(frame_row):
+    """Column of the single white pixel of a frame row."""
+    (cols,) = np.where(frame_row[:, 0] > 128)
+    assert len(cols) == 1
+    return cols[0]
+
+
+def test_rolling_shutter_row_displacement():
+    clip = _moving_line_clip()  # line moves 10 px/s, fps=10 -> 1 px per frame
+    result = clip.with_effects([vfx.RollingShutter(readout_duration=0.8)])
+
+    # size, duration and fps are preserved
+    assert result.size == clip.size
+    assert result.duration == clip.duration
+    assert result.fps == clip.fps
+
+    frame = result.get_frame(2.0)
+    # rows are sampled over 0.8 s centered on t -> the line slants by 8 px
+    assert _line_column(frame[0]) == 16  # top row sampled at t - 0.4
+    assert _line_column(frame[-1]) == 24  # bottom row sampled at t + 0.4
+
+
+def test_rolling_shutter_reverse_direction():
+    clip = _moving_line_clip()
+    result = clip.with_effects(
+        [vfx.RollingShutter(readout_duration=0.8, direction="bottom_to_top")]
+    )
+
+    frame = result.get_frame(2.0)
+    # the slant is mirrored compared to 'top_to_bottom'
+    assert _line_column(frame[0]) == 24
+    assert _line_column(frame[-1]) == 16
+
+
+def test_rolling_shutter_boundary_freeze():
+    clip = _moving_line_clip()
+    result = clip.with_effects([vfx.RollingShutter(readout_duration=0.8)])
+
+    frame = result.get_frame(0.0)
+    # top rows would sample t < 0: frozen on the first frame (line at x=0)
+    assert _line_column(frame[0]) == 0
+    # bottom row samples t = 0.4 -> line at x=4
+    assert _line_column(frame[-1]) == 4
+
+
+def test_rolling_shutter_boundary_transparent():
+    clip = _moving_line_clip()
+    result = clip.with_effects(
+        [vfx.RollingShutter(readout_duration=0.8, out_of_bounds="transparent")]
+    )
+
+    frame = result.get_frame(0.0)
+    # rows sampling t < 0 are black in the RGB layers...
+    assert frame[0].max() == 0
+    # ...and transparent in the mask (added by the effect if needed)
+    assert result.mask is not None
+    mask = result.mask.get_frame(0.0)
+    assert mask[0].max() == 0
+    assert mask[-1].min() == 1
+    # in-bounds rows are unaffected
+    assert _line_column(frame[-1]) == 4
+
+
+def test_rolling_shutter_preserves_audio_and_mask():
+    # audio is kept untouched
+    clip = _moving_line_clip()
+    audio = AudioClip(
+        lambda t: np.sin(440 * 2 * np.pi * t), duration=clip.duration, fps=44100
+    )
+    result = clip.with_audio(audio).with_effects([vfx.RollingShutter(0.8)])
+    assert result.audio is not None
+    assert result.audio.duration == clip.duration
+
+    # the mask is preserved and shifted row-wise like the RGB frames
+    mask = VideoClip(
+        frame_function=lambda t: np.full((2, 2), t / 3.0),
+        is_mask=True,
+        duration=3.0,
+    )
+    clip = BitmapClip([["RA", "RA"], ["GA", "GA"], ["BA", "BA"]], fps=1)
+    clip = clip.with_mask(mask)
+    result = clip.with_effects([vfx.RollingShutter(readout_duration=2.0)])
+    assert result.mask is not None
+    mask_frame = result.mask.get_frame(1.0)
+    assert mask_frame.shape == (2, 2)
+    assert mask_frame[0, 0] == pytest.approx(0.0)  # top row sampled at t=0
+    assert mask_frame[1, 0] == pytest.approx(2 / 3.0)  # bottom row at t=2
+
+
+def test_rolling_shutter_zero_readout_is_identity():
+    clip = _moving_line_clip()
+    result = clip.with_effects([vfx.RollingShutter(readout_duration=0)])
+
+    assert result.duration == clip.duration
+    for t in (0.0, 1.3, 3.9):
+        assert np.array_equal(result.get_frame(t), clip.get_frame(t))
+
+
+def test_rolling_shutter_requires_fps_and_duration():
+    make_frame = lambda t: np.zeros((4, 4, 3), dtype=np.uint8)  # noqa: E731
+
+    # no fps
+    clip = VideoClip(frame_function=make_frame, duration=1.0)
+    with pytest.raises(ValueError, match="fps"):
+        clip.with_effects([vfx.RollingShutter(readout_duration=0.5)])
+
+    # no duration
+    clip = VideoClip(frame_function=make_frame).with_fps(10)
+    with pytest.raises(ValueError, match="duration"):
+        clip.with_effects([vfx.RollingShutter(readout_duration=0.5)])
+
+
+def test_rolling_shutter_invalid_parameters():
+    clip = _moving_line_clip()
+    with pytest.raises(ValueError, match="readout_duration"):
+        clip.with_effects([vfx.RollingShutter(readout_duration=-1)])
+    with pytest.raises(ValueError, match="direction"):
+        clip.with_effects([vfx.RollingShutter(readout_duration=0.5, direction="x")])
+    with pytest.raises(ValueError, match="out_of_bounds"):
+        clip.with_effects([vfx.RollingShutter(readout_duration=0.5, out_of_bounds="x")])
+
+
+def test_rolling_shutter_variable_size_frames():
+    def make_frame(t):
+        size = 10 if t < 0.5 else 12
+        return np.zeros((size, size, 3), dtype=np.uint8)
+
+    clip = VideoClip(frame_function=make_frame, duration=1.0).with_fps(10)
+    result = clip.with_effects([vfx.RollingShutter(readout_duration=0.4)])
+    with pytest.raises(ValueError, match="variable-size"):
+        result.get_frame(0.9)
+
+
+def test_rolling_shutter_short_clip():
+    # readout duration (10 s) much longer than the clip itself (3 s)
+    clip = BitmapClip([["RA", "RA"], ["GA", "GA"], ["BA", "BA"]], fps=1)
+
+    frozen = clip.with_effects([vfx.RollingShutter(readout_duration=10.0)])
+    assert frozen.duration == clip.duration
+    frame = frozen.get_frame(1.0)
+    assert tuple(frame[0, 0]) == (255, 0, 0)  # top row frozen on first frame
+    assert tuple(frame[1, 0]) == (0, 0, 255)  # bottom row frozen on last frame
+
+    transparent = clip.with_effects(
+        [vfx.RollingShutter(readout_duration=10.0, out_of_bounds="transparent")]
+    )
+    frame = transparent.get_frame(1.0)
+    # both rows sample outside the clip -> fully black/transparent
+    assert frame.max() == 0
+    assert transparent.mask.get_frame(1.0).max() == 0
+
+
+def test_rolling_shutter_caches_source_frames():
+    clip = _moving_line_clip()
+    sampled_times = []
+    original_frame_function = clip.frame_function
+
+    def counting_frame_function(t):
+        sampled_times.append(t)
+        return original_frame_function(t)
+
+    clip.frame_function = counting_frame_function
+    result = clip.with_effects([vfx.RollingShutter(readout_duration=0.8)])
+
+    result.get_frame(2.0)
+    n_samples = len(sampled_times)
+    assert n_samples > 0
+    # rendering the same frame again only hits the cache
+    result.get_frame(2.0)
+    assert len(sampled_times) == n_samples
+
+
 def test_multiply_speed():
     clip = BitmapClip([["A"], ["B"], ["C"], ["D"]], fps=1)
 

@@ -114,6 +114,9 @@ moviepy.video.fx
    moviepy.video.fx.Resize
 
 
+   moviepy.video.fx.RollingShutter
+
+
    moviepy.video.fx.Rotate
 
 
