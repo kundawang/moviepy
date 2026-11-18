@@ -20,6 +20,7 @@ This mean you need to specifically set `bg_color=None` if you want to generate a
 
 ### Added
 - Possibility to select audio track when reading a file (#2429)
+- Automatic alignment of externally recorded audio: `moviepy.audio.tools.align` provides `estimate_audio_offset` (constant offset + confidence estimation by windowed cross-correlation), `align_audio_clip` and `align_audio_to_video`
 
 ### Changed 
 - Rewrite FFmpegInfosParser to use indentation and block extractions instead of a state machine (PR #2470)

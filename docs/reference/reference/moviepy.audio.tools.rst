@@ -33,6 +33,7 @@ moviepy.audio.tools
    :recursive:
 
 
+   moviepy.audio.tools.align
    moviepy.audio.tools.cuts
 
 
