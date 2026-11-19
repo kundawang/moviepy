@@ -1,0 +1,28 @@
+1
+00:00:00,000 --> 00:00:04,000
+ALICE: Hello everyone, welcome to the show
+
+2
+00:00:02,000 --> 00:00:06,000
+BOB: Hi there, thanks for inviting me
+
+3
+00:00:03,500 --> 00:00:05,000
+ALICE: Let us start right away
+
+4
+00:00:05,000 --> 00:00:08,000
+ALICE: Good to see you again
+
+5
+00:00:06,000 --> 00:00:09,000
+BOB: Same here, it is a real pleasure
+
+6
+00:00:08,000 --> 00:00:10,000
+ALICE: We have a lot to discuss today
+
+7
+00:00:09,000 --> 00:00:11,000
+BOB: Indeed, let us dive into it
+

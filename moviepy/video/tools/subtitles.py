@@ -191,8 +191,12 @@ def file_to_subtitles(filename, encoding=None):
             if times:
                 current_times = [convert_to_seconds(t) for t in times]
             elif line.strip() == "":
-                times_texts.append((current_times, current_text.strip("\n")))
+                if current_times is not None:
+                    times_texts.append((current_times, current_text.strip("\n")))
                 current_times, current_text = None, ""
             elif current_times:
                 current_text += line
+    # A final cue without a trailing blank line must not be silently dropped.
+    if current_times is not None:
+        times_texts.append((current_times, current_text.strip("\n")))
     return times_texts

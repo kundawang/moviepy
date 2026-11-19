@@ -45,6 +45,9 @@ moviepy.video.tools
    moviepy.video.tools.interpolators
 
 
+   moviepy.video.tools.subtitle_layout
+
+
    moviepy.video.tools.subtitles
 
 
